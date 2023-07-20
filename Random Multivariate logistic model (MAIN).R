@@ -1,6 +1,11 @@
 #-------------------------------------------------------------------------------
 # RANDOM BAYESIAN MULTIVARIATE LOGISTIC MODEL FOR FISH DIET USING JAGS
 #-------------------------------------------------------------------------------
+
+# this is a bunch of code to fit a multivariate logistic model to fish diet 
+# composition data. I use a shared random intercept structure to allow to
+# account for the correlation structure between the multiple outcome variables
+
 require(rstanarm)
 require(dplyr)
 require(tidyverse)
