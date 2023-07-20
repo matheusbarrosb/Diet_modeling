@@ -1,0 +1,24 @@
+model {
+    
+# PRIORS
+mu_int~dnorm(0, 0.0001) # Mean hyperparameter for random intercepts
+sigma_int~dunif(0, 10) # SD hyperparameter for random intercepts
+tau_int <- 1/(sigma_int*sigma_int)
+
+for (i in 1:n_prey) {
+
+    alpha[i]~dnorm(mu_int, tau_int) # Random intercepts
+}
+
+beta~dnorm(0, 0.0001) # Fixed slope
+sigma_res~dunif(0, 10) # Residual standard deviation
+tau_res <- 1/(sigma_res*sigma_res)
+
+# LIKELIHOOD
+for (i in 1:n_obs) {
+
+    logit(mu[i]) <- alpha[prey[i]]+beta*TL[i] # Expectation
+    y[i] ~ dbern(mu[i]) # The actual (random) responses
+
+}
+}
