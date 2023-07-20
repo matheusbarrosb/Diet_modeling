@@ -7,7 +7,6 @@ require(tidyverse)
 require(rjags)
 require(R2jags)
 require(rstan)
-
 #-------------------------------------------------------------------------------
 # formatting data
 
