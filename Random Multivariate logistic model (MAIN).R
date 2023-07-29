@@ -5,12 +5,11 @@
 # this is a bunch of code to fit a multivariate logistic model to fish diet 
 # composition data. I use a shared random intercept structure to allow to
 # account for the correlation structure between the multiple outcome variables
-require(rstanarm)
 require(dplyr)
 require(tidyverse)
 require(rjags)
 require(R2jags)
-require(rstan)
+require(ggmcmc)
 #-------------------------------------------------------------------------------
 # formatting data
 
@@ -21,7 +20,7 @@ LAGRHO <- diet.raw %>%
 
 
 LAGRHO <- LAGRHO %>%
-  group_by(`Fish ID`, Year, Treatment, Group, Length, Site) %>%
+  group_by(`Fish ID`, Year, Treatment, Group, Length, Site, `Gut weight`) %>%
   summarize(count = n())
 
 LAGRHO <- LAGRHO %>%
@@ -75,8 +74,7 @@ model.data <- list(
   crust = crust,
   isop = isop,
   tanad = tanad,
-  X = X,                                                               
-  K = K,                                                               
+  X = X,                                                             
   N = length(amph),                                           
   re = site,                                       
   b0 = rep(0,K),
@@ -140,10 +138,10 @@ modelString <- "
 model.spec<-textConnection(modelString)
 
 #parameters to be monitored
-params <- c("betas_amph","betas_pol","betas_SAV", "betas_crust", "betas_isop", "betas_isop")
+params <- c("p_isop")
 
 
-nt = 1; nc = 3; nb = 5000; ni = 50000
+nt = 1; nc = 3; nb = 1000; ni = 50000
 
 fit <- jags(data = model.data,
              inits = NULL,
@@ -157,11 +155,13 @@ fit <- jags(data = model.data,
 print(fit, intervals=c(0.2, 0.8), digits=2)
 plot(fit)
 
+ggmcmc::ggs_rocplot(amph, outcome = amph)
 
-MCMC <- as.mcmc(fit)
+?ggs_rocplot
 
-MCMC.df <- ggs(MCMC)
-head(MCMC.df)
+plot(fit$BUGSoutput$mean$p_isop ~ as.factor(LAGRHO$Site))
+
+
 
 # PLOTTING
 
@@ -221,47 +221,6 @@ ggs_caterpillar(MCMC.df, greek = TRUE,
   theme_custom() +
   geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
   ggtitle("Tanaidacea")
-
-
-# PLOTTING POSTERIOR PROBABILITIES OF ECOUNTER FOR A PREY
-
-probs <- fit$BUGSoutput$median$p_SAV
-sites <- LAGRHO$Site
-treat <- LAGRHO$Treatment
-
-plot(probs ~ as.factor(sites))
-
-prob.df <- data.frame(probs, sites, TL)
-
-ggplot(data = prob.df, aes(x = sites, y = probs, fill = treat)) +
-  geom_jitter(width = 0.2) + 
-  theme_custom() + geom_flat_violin(position = position_nudge(x = .25),
-                                    alpha = 0.4) +
-  xlab("") + scale_fill_manual(values = c("grey", "seagreen")) +
-  ylab("Posterior probability of occurrence") +
-  ggtitle("Pinfish eat more SAV at certain sites")
-
-
-TL2 <- runif(1000, 30, 300)
-
-prob_SAV_mean <- 1/(1 + exp(-(-8.16 + 0.04*TL2)))
-prob_SAV_low <- 1/(1 + exp(-(-5.16 + 0.03*TL2)))
-prob_SAV_high <- 1/(1 + exp(-(-12.16 + 0.05*TL2)))
-
-log_odds_mean <- log(prob_SAV_mean/(1-prob_SAV_mean))
-log_odds_low <- log(prob_SAV_low/(1-prob_SAV_low))
-log_odds_high <- log(prob_SAV_high/(1-prob_SAV_high))
-
-probs.df <- data.frame(TL2, prob_SAV_mean, prob_SAV_low, prob_SAV_high,
-                      log_odds_high, log_odds_low, log_odds_mean)
-
-ggplot(data = probs.df, aes(x = TL2, y = prob_SAV_mean)) +
-  geom_line() + geom_ribbon(aes(ymin = prob_SAV_low,
-                                ymax = prob_SAV_high),
-                            alpha = 0.3, fill = "seagreen") +
-  theme_custom() + ylab("Posterior probability of ocurrence") +
-  xlab("TL (mm)") + ggtitle("SAV ingestion is more likely for bigger fish")
-
 
 
 
