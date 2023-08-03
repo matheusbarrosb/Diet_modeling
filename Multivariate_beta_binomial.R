@@ -33,38 +33,42 @@ LAGRHO.df <- data.frame(LAGRHO$Treatment, LAGRHO$Site, LAGRHO$Length,
 names(LAGRHO.df) <- c('treat', 'site', 'TL', 'SAV', 'amphipod', 'crustacean',
                       'polychaetae', 'tanaidacea')
 
-LAGRHO.df <- LAGRHO.df %>% group_by(site) %>% 
+LAGRHO.df <- LAGRHO.df %>% group_by(site, treat) %>% 
   summarise(TL = mean(TL), SAV = sum(SAV), amphipod = sum(amphipod), crustacean = sum(crustacean),
             polychaete = sum(polychaetae), tanaidacea = sum(tanaidacea))
 
 
 # FORMATTING DATA FOR MODEL INPUTS ---------------------------------------------
 
-y = as.matrix(LAGRHO.df[,3:7]) # response variables
-x = as.numeric(as.factor(LAGRHO.df$site)) # categorical covariate
+y = as.matrix(LAGRHO.df[,4:8]) # response variables
+site = as.numeric(as.factor(LAGRHO.df$site)) # categorical covariate 01
+treat = as.numeric(as.factor(LAGRHO.df$treat)) 
 
 # number of observations ('visits') for each site for binomial distribution
 N_obs_site1 <- LAGRHO %>% 
-  group_by(Site) %>%
+  group_by(Site, Treatment) %>%
   summarise(no_rows = length(Site))
 N_obs_site <- N_obs_site1$no_rows
-
 
 # constrain prey observations to <= No of observations per site for binomial distribution
 y <- ifelse(y > N_obs_site, (N_obs_site-1), y)
 
-xlevels = levels(as.factor(LAGRHO.df$site)) # levels for categorical covariate
+sitelevels = levels(as.factor(LAGRHO.df$site)) # levels for categorical covariate
+treatlevels = levels(as.factor(LAGRHO.df$treat)) 
 Ntotal = length(LAGRHO.df$site) # number of sites
-N_lvls = length(unique(x)) # number of levels for categorical covariate
+N_lvls_site = length(unique(site)) # number of levels for categorical covariate
+N_lvls_treat = length(unique(treat))
 
 # Specify the data in a list for sending to JAGS:
 dataList = list(
   y = y,
   N_obs_site = N_obs_site,
-  x = x,
+  site = site,
+  treat = treat,
   N_prey = ncol(y),
   Ntotal = Ntotal,
-  N_lvls = N_lvls 
+  N_lvls_site = N_lvls_site,
+  N_lvls_treat = N_lvls_treat
 )
 
 
@@ -76,43 +80,52 @@ modelstring = "
     
         y[i,k] ~ dbin(p[i,k], N_obs_site[i])
   
-        p[i,k] ~ dbeta(omega[x[i]]*(kappa[k]-2)+1, (1-omega[x[i]])*(kappa[k]-2)+1)
+        p[i,k] ~ dbeta(omega[site[i], treat[i]]*(kappa[k]-2)+1, (1-omega[site[i], treat[i]])*(kappa[k]-2)+1)
 
       }
     }
 
-
-      for (j in 1:N_lvls) {
+    for (k in 1:N_lvls_treat) {
+      for (j in 1:N_lvls_site) {
     
-        omega[j] <- ilogit(a0 + a[j])
+        omega[j,k] <- ilogit(a0 + a[j,k])
       
-        a[j] ~ dnorm(0, 1/aSigma^2)
+        a[j,k] ~ dnorm(0, 1/aSigma^2)
       
       }
 
-    
+    }
+
     a0 ~ dnorm(0.0 , 1/2^2) 
-    aSigma ~ dgamma(0.01, 0.01)  # mode=2, sd=4
+    aSigma ~ dgamma(0.01, 0.01)  
 
     for (k in 1:N_prey) {
-    kappaMinusTwo[k] ~ dgamma(0.01 , 0.01)  # varying K
+
+    kappaMinusTwo[k] ~ dgamma(0.01 , 0.01)  # varying K per prey group
     kappa[k] <- kappaMinusTwo[k] + 2
+
     }    
 
     # Convert a0,a[] to sum-to-zero b0,b[] :
     
+    for (k in 1:N_lvls_treat) {
+      for (j in 1:N_lvls_site) { 
 
-      for (j in 1:N_lvls) { 
-
-        m[j] <- a0 + a[j] 
+        m[j,k] <- a0 + a[j,k] 
       
       } # cell means 
+    }
+    
+    b0 <- mean(m)
 
-    
-    b0 <- mean(m[1:N_lvls])
-    
-    for (j in 1:N_lvls) {b[j] <- m[j] - b0}
-    
+    for (k in 1:N_lvls_treat) {
+      for (j in 1:N_lvls_site) {
+
+        b[j,k] <- m[j,k] - b0
+
+      }
+    }
+
   }
   " # end of model specification
 
@@ -121,7 +134,7 @@ model.spec <- textConnection(modelstring)
 #parameters to be monitored
 params <- c("p")
 
-nt = 1; nc = 3; nb = 1000; ni = 5000
+nt = 1; nc = 3; nb = 1000; ni = 3000
 
 fit <- jags(data = dataList,
             inits = NULL,
