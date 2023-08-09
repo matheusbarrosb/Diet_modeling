@@ -12,7 +12,7 @@ require(ggmcmc)
 #-------------------------------------------------------------------------------
 # FORMATING RAW DATA  ----------------------------------------------------------
 
-diet.raw <- Seine_Data_DT
+diet.raw <- Seine_Data_DT_1_
 
 LAGRHO <- diet.raw %>%
   filter(diet.raw$`Species code` == "LAGRHO")
@@ -72,7 +72,9 @@ dataList = list(
   N_prey = ncol(y),
   Ntotal = Ntotal,
   N_lvls_site = N_lvls_site,
-  N_lvls_treat = N_lvls_treat
+  N_lvls_treat = N_lvls_treat,
+  total_prey_obs = colSums(y),
+  total_obs = sum(N_obs_site)
 )
 
 
@@ -133,13 +135,23 @@ modelstring = "
       }
     }
 
+  # OVERALL PoE FOR EACH PREY K
+
+    for (k in 1:N_prey) {
+
+      total_prey_obs[k] ~ dbin(ov_POE[k], total_obs)
+
+      ov_POE[k] ~ dbeta(1,1)
+
+    }
+
   }
   " # end of model specification
 
 model.spec <- textConnection(modelstring)
 
 #parameters to be monitored
-params <- c("p")
+params <- c("p", "ov_POE")
 
 nt = 1; nc = 3; nb = 1000; ni = 5000
 
@@ -152,33 +164,43 @@ fit <- jags(data = dataList,
             n.burnin = nb,
             n.iter = ni)
 
+plot(fit)
 print(fit, intervals=c(0.2, 0.8), digits=2)
 
 mcmc.df <- ggs(as.mcmc(fit))
 
-
-ggs_caterpillar(mcmc.df) + theme_nice() + xlim(0,1)
-
-
-
 site_treat<- factor(interaction(LAGRHO.df$site, LAGRHO.df$treat, sep = "-"))
 
+# get PoEs for each prey at each site
 p_SAV <- NULL
+p_amph <- NULL
+p_crust <- NULL
+p_pol <- NULL
+p_tanad <- NULL
+
 for (i in 1:Ntotal) {
   p_SAV[i] <- fit$BUGSoutput$mean$p[i,1]
+  p_amph[i] <- fit$BUGSoutput$mean$p[i,2]
+  p_crust[i] <- fit$BUGSoutput$mean$p[i,3]
+  p_pol[i] <- fit$BUGSoutput$mean$p[i,4]
+  p_tanad[i] <- fit$BUGSoutput$mean$p[i,5]
+  
 }
 
-
 plot(p_SAV ~ site_treat)
+plot(p_amph ~ site_treat)
+plot(p_crust ~ site_treat)
+plot(p_pol ~ site_treat)
+plot(p_tanad ~ site_treat)
 
 # POSTERIOR PREDICTIVE CHECKS
 
-ob_p <- as.data.frame(dataList$y/dataList$N_obs_site) 
+ob_p <- as.data.frame(dataList$y/dataList$N_obs_site) # observed PoEs
 
 pred_p <- matrix(NA, nrow = dataList$Ntotal, ncol = dataList$N_prey)
 for(i in 1:(dataList$N_prey)) {
   for (j in 1:(dataList$Ntotal)) {pred_p[j,i] <- fit$BUGSoutput$mean$p[j,i]}
-}
+} # get predicted PoEs
 
 pred_p <- as.data.frame(pred_p)
 names(pred_p) <- c("SAV", "amphipod", "crustacean", "polychaete", "tanaidacea")
@@ -200,6 +222,17 @@ tanad_obs <- ob_p$tanaidacea
 observed <- c(SAV_obs, amph_obs, crust_obs, pol_obs, tanad_obs)
 
 plot(observed ~ predicted)
+abline(lm(observed ~ predicted), col = "blue")
+abline(0,1, col = "red")
+legend(x = "topleft",          
+       legend = c("Expected", "Predicted"),
+       col = c("blue", "red"), 
+       lwd = 2)  
+
+
+
+
+
 
 
 
