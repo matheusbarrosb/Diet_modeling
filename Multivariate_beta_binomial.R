@@ -9,6 +9,7 @@ require(tidyverse)
 require(rjags)
 require(R2jags)
 require(ggmcmc)
+require(see)
 #-------------------------------------------------------------------------------
 # FORMATING RAW DATA  ----------------------------------------------------------
 
@@ -31,19 +32,21 @@ LAGRHO <- LAGRHO %>%
 
 LAGRHO.df <- data.frame(LAGRHO$Treatment, LAGRHO$Site, LAGRHO$Length,
                         LAGRHO$SAV, LAGRHO$Amphipod, LAGRHO$Crustacean,
-                        LAGRHO$Polychaete, LAGRHO$Tanaidacea)
+                        LAGRHO$Polychaete, LAGRHO$Isopod, LAGRHO$Tanaidacea,
+                        LAGRHO$Fish)
 
 names(LAGRHO.df) <- c('treat', 'site', 'TL', 'SAV', 'amphipod', 'crustacean',
-                      'polychaetae', 'tanaidacea')
+                      'polychaetae', 'isopod', 'tanaidacea', 'fish')
 
 LAGRHO.df <- LAGRHO.df %>% group_by(site, treat) %>% 
   summarise(TL = mean(TL), SAV = sum(SAV), amphipod = sum(amphipod), crustacean = sum(crustacean),
-            polychaete = sum(polychaetae), tanaidacea = sum(tanaidacea))
+            polychaete = sum(polychaetae), tanaidacea = sum(tanaidacea), isopod = sum(isopod),
+            fish = sum(fish))
 
 
 # FORMATTING DATA FOR MODEL INPUTS ---------------------------------------------
 
-y = as.matrix(LAGRHO.df[,4:8]) # response variables
+y = as.matrix(LAGRHO.df[,4:10]) # response variables
 site = as.numeric(as.factor(LAGRHO.df$site)) # categorical covariate 01
 treat = as.numeric(as.factor(LAGRHO.df$treat)) 
 
@@ -141,7 +144,11 @@ modelstring = "
 
       total_prey_obs[k] ~ dbin(ov_POE[k], total_obs)
 
-      ov_POE[k] ~ dbeta(1,1)
+      ov_POE[k] ~ dbeta(omega_ov[k]*(kappa_ov[k]-2)+1, (1-omega_ov[k])*(kappa_ov[k]-2)+1)
+
+      omega_ov[k] ~ dbeta(1,1)
+
+      kappa_ov[k] ~ dgamma(0.01,0.01)
 
     }
 
@@ -151,9 +158,9 @@ modelstring = "
 model.spec <- textConnection(modelstring)
 
 #parameters to be monitored
-params <- c("p", "ov_POE")
+params <- c("p")
 
-nt = 1; nc = 3; nb = 1000; ni = 5000
+nt = 1; nc = 3; nb = 1000; ni = 10000
 
 fit <- jags(data = dataList,
             inits = NULL,
@@ -167,8 +174,6 @@ fit <- jags(data = dataList,
 plot(fit)
 print(fit, intervals=c(0.2, 0.8), digits=2)
 
-mcmc.df <- ggs(as.mcmc(fit))
-
 site_treat<- factor(interaction(LAGRHO.df$site, LAGRHO.df$treat, sep = "-"))
 
 # get PoEs for each prey at each site
@@ -177,6 +182,8 @@ p_amph <- NULL
 p_crust <- NULL
 p_pol <- NULL
 p_tanad <- NULL
+p_isop <- NULL
+p_fish <- NULL
 
 for (i in 1:Ntotal) {
   p_SAV[i] <- fit$BUGSoutput$mean$p[i,1]
@@ -184,7 +191,8 @@ for (i in 1:Ntotal) {
   p_crust[i] <- fit$BUGSoutput$mean$p[i,3]
   p_pol[i] <- fit$BUGSoutput$mean$p[i,4]
   p_tanad[i] <- fit$BUGSoutput$mean$p[i,5]
-  
+  p_isop[i] <- fit$BUGSoutput$mean$p[i,6]
+  p_fish[i] <- fit$BUGSoutput$mean$p[i,7]
 }
 
 plot(p_SAV ~ site_treat)
@@ -192,6 +200,8 @@ plot(p_amph ~ site_treat)
 plot(p_crust ~ site_treat)
 plot(p_pol ~ site_treat)
 plot(p_tanad ~ site_treat)
+plot(p_isop ~ site_treat)
+plot(p_fish ~ site_treat)
 
 # POSTERIOR PREDICTIVE CHECKS
 
@@ -230,9 +240,64 @@ legend(x = "topleft",
        lwd = 2)  
 
 
+# FORMATTING GGS DATAFRAME 
+
+mcmc.df <- ggs(as.mcmc(fit))
+
+mcmc_df <- mcmc.df %>%
+  mutate(Prey = case_when(Parameter == 'p[1,1]' | Parameter == 'p[2,1]' | Parameter == 'p[3,1]' |
+                          Parameter == 'p[4,1]' | Parameter == 'p[5,1]' | Parameter == 'p[6,1]' |
+                          Parameter == 'p[7,1]' ~ 'SAV',
+                          Parameter == 'p[1,2]' | Parameter == 'p[2,2]' | Parameter == 'p[3,2]' |
+                          Parameter == 'p[4,2]' | Parameter == 'p[5,2]' | Parameter == 'p[6,2]' |
+                          Parameter == 'p[7,2]' ~ 'Amphipod',
+                          Parameter == 'p[1,3]' | Parameter == 'p[2,3]' | Parameter == 'p[3,3]' |
+                          Parameter == 'p[4,3]' | Parameter == 'p[5,3]' | Parameter == 'p[6,3]' |
+                          Parameter == 'p[7,3]' ~ 'Crustacean',
+                          Parameter == 'p[1,4]' | Parameter == 'p[2,4]' | Parameter == 'p[3,4]' |
+                          Parameter == 'p[4,4]' | Parameter == 'p[5,4]' | Parameter == 'p[6,4]' |
+                          Parameter == 'p[7,4]' ~ 'Polychaete',
+                          Parameter == 'p[1,5]' | Parameter == 'p[2,5]' | Parameter == 'p[3,5]' |
+                          Parameter == 'p[4,5]' | Parameter == 'p[5,5]' | Parameter == 'p[6,5]' |
+                          Parameter == 'p[7,5]' ~ 'Tanaidacea',
+                          Parameter == 'p[1,6]' | Parameter == 'p[2,6]' | Parameter == 'p[3,6]' |
+                          Parameter == 'p[4,6]' | Parameter == 'p[5,6]' | Parameter == 'p[6,6]' |
+                          Parameter == 'p[7,6]' ~ 'Isopod',
+                          Parameter == 'p[1,7]' | Parameter == 'p[2,7]' | Parameter == 'p[3,7]' |
+                          Parameter == 'p[4,7]' | Parameter == 'p[5,7]' | Parameter == 'p[6,7]' |
+                          Parameter == 'p[7,7]' ~ 'Fish'))
+
+mcmc_df <- mcmc_df %>%
+  mutate(Site = case_when(Parameter == 'p[1,1]' | Parameter == 'p[1,2]' | Parameter == 'p[1,3]' |
+                          Parameter == 'p[1,4]' | Parameter == 'p[1,5]' | Parameter == 'p[1,6]' |
+                          Parameter == 'p[1,7]' ~ 'AM-C',
+                          Parameter == 'p[2,1]' | Parameter == 'p[2,2]' | Parameter == 'p[2,3]' |
+                          Parameter == 'p[2,4]' | Parameter == 'p[2,5]' | Parameter == 'p[2,6]' |
+                          Parameter == 'p[2,7]' ~ 'DR-C',
+                          Parameter == 'p[3,1]' | Parameter == 'p[3,2]' | Parameter == 'p[3,3]' |
+                          Parameter == 'p[3,4]' | Parameter == 'p[3,5]' | Parameter == 'p[3,6]' |
+                          Parameter == 'p[3,7]' ~ 'HWP-T',
+                          Parameter == 'p[4,1]' | Parameter == 'p[4,2]' | Parameter == 'p[4,3]' |
+                          Parameter == 'p[4,4]' | Parameter == 'p[4,5]' | Parameter == 'p[4,6]' |
+                          Parameter == 'p[4,7]' ~ 'PaP-C',
+                          Parameter == 'p[5,1]' | Parameter == 'p[5,2]' | Parameter == 'p[5,3]' |
+                          Parameter == 'p[5,4]' | Parameter == 'p[5,5]' | Parameter == 'p[5,6]' |
+                          Parameter == 'p[5,7]' ~ 'LB-C',
+                          Parameter == 'p[6,1]' | Parameter == 'p[6,2]' | Parameter == 'p[6,3]' |
+                          Parameter == 'p[6,4]' | Parameter == 'p[6,5]' | Parameter == 'p[6,6]' |
+                          Parameter == 'p[6,7]' ~ 'PaP-T',
+                          Parameter == 'p[7,1]' | Parameter == 'p[7,2]' | Parameter == 'p[7,3]' |
+                          Parameter == 'p[7,4]' | Parameter == 'p[7,5]' | Parameter == 'p[7,6]' |
+                          Parameter == 'p[7,7]' ~ 'SA-T'))
+
+mcmc_df <- na.exclude(mcmc_df)
 
 
-
+ggplot(data = mcmc_df, aes(y = value, x = Site)) +
+  geom_violinhalf(trim = TRUE, scale = "width",
+                  fill = "seagreen", alpha = 0.3) +
+  facet_wrap(~Prey) + 
+  theme_custom()
 
 
 
